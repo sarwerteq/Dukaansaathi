@@ -1,0 +1,17 @@
+{
+  "name": "DukaanSaathi",
+  "short_name": "DukaanSaathi",
+  "description": "Billing, Stock & Udhaar for your shop",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f4",
+  "theme_color": "#0e7c4a",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
