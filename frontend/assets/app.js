@@ -179,7 +179,9 @@ function upiQrImg(amount, note, size) {
   const uri = upiUri(amount, note);
   return `<img src="https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(uri)}" alt="UPI QR" style="width:${size}px;max-width:100%">`;
 }
-
+function productLabel(p) {
+  return (p.category ? p.category + " — " : "") + p.name + (p.variant ? " (" + p.variant + ")" : "");
+}
 function pageBilling() {
   return `
     <h2>New Bill</h2>
@@ -196,7 +198,7 @@ function pageBilling() {
       <label>Add product</label>
       <select id="b_add_product" onchange="addBillItem(this.value); this.value=''">
         <option value="">Select a product...</option>
-        ${S.products.map((p) => `<option value="${p.id}">${escHtml(p.name)} (${money(p.price)}/${escHtml(p.unit)}, stock ${p.stock_qty})</option>`).join("")}
+        ${S.products.filter((p) => p.stock_qty > 0).map((p) => `<option value="${p.id}">${escHtml(productLabel(p))} (${money(p.price)}/${escHtml(p.unit)}, stock ${p.stock_qty})</option>`).join("")}
       </select>
     </div>
 
