@@ -88,10 +88,39 @@ function pageSettings() {
     <div class="card">
       <label>Shop Name</label><input id="st_name" value="${escHtml(S.shop.name)}">
       <label>Address</label><input id="st_addr" value="${escHtml(S.shop.address || "")}">
-      <label>UPI ID (for payment QR)</label><input id="st_upi" value="${escHtml(S.shop.upi_id || "")}" placeholder="yourname@upi">
+      <label>UPI ID (for auto-amount QR)</label><input id="st_upi" value="${escHtml(S.shop.upi_id || "")}" placeholder="yourname@upi">
+      <p class="muted">With a UPI ID, each bill shows a QR already filled with the exact total.</p>
       <p id="st_err" class="err"></p>
       <button class="btn" onclick="saveSettings()">Save Settings</button>
+    </div>
+    <div class="card">
+      <label>Or upload your own QR code image</label>
+      <input type="file" accept="image/*" onchange="uploadQr(this)">
+      <p class="muted">Use this if you'd rather show a fixed QR (e.g. one from your bank). It will NOT auto-fill the amount — the customer must type it in themselves.</p>
+      ${S.shop.qr_image_path ? `<img src="${S.shop.qr_image_path}" alt="Your QR code" style="width:200px;max-width:100%">` : `<p class="muted">No QR uploaded yet.</p>`}
+      <p id="qr_err" class="err"></p>
     </div>`;
+}
+
+async function uploadQr(input) {
+  $("#qr_err").textContent = "";
+  const file = input.files[0];
+  if (!file) return;
+  if (!/^image\//.test(file.type) || file.size > 5 * 1024 * 1024) {
+    $("#qr_err").textContent = "Please choose an image under 5 MB.";
+    return;
+  }
+  const form = new FormData();
+  form.append("qr", file);
+  try {
+    const res = await fetch("/api/shop/qr", { method: "POST", credentials: "include", body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed.");
+    S.shop = data;
+    goTo("settings");
+  } catch (err) {
+    $("#qr_err").textContent = err.message;
+  }
 }
 
 async function saveSettings() {
