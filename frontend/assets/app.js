@@ -118,8 +118,11 @@ async function logout() {
   goTo("login");
 }
 
+let salesChart, modeChart;
+
 async function pageDashboard() {
-  const summary = await api.get("/dashboard/summary");
+  const [summary, weekly] = await Promise.all([api.get("/dashboard/summary"), api.get("/dashboard/weekly")]);
+  setTimeout(() => drawDashboardCharts(weekly), 0);
   return `
     <h2>Today</h2>
     <div class="stat"><span>Sales Today</span><b>${money(summary.todaySalesTotal)}</b></div>
@@ -128,6 +131,14 @@ async function pageDashboard() {
     <div class="stat"><span>Total Udhaar Outstanding</span><b>${money(summary.totalUdhaarOutstanding)}</b></div>
 
     <a class="btn" href="#billing">+ New Bill</a>
+
+    <h3>Last 7 Days Sales</h3>
+    <div class="card"><canvas id="salesChart" height="180"></canvas></div>
+
+    ${weekly.paymentModes.length ? `
+      <h3>Today's Payment Modes</h3>
+      <div class="card"><canvas id="modeChart" height="180"></canvas></div>
+    ` : ""}
 
     ${summary.lowStock.length ? `
       <h3>Low Stock</h3>
@@ -139,6 +150,32 @@ async function pageDashboard() {
       <div class="card">${summary.topCustomersByUdhaar.map((c) => `<div>${escHtml(c.name)} — <span class="pill due">${money(c.udhaar_balance)}</span></div>`).join("")}</div>
     ` : ""}
   `;
+}
+
+function drawDashboardCharts(weekly) {
+  const salesCanvas = $("#salesChart");
+  if (salesCanvas) {
+    if (salesChart) salesChart.destroy();
+    salesChart = new Chart(salesCanvas, {
+      type: "bar",
+      data: {
+        labels: weekly.days.map((d) => d.label),
+        datasets: [{ label: "Sales (₹)", data: weekly.days.map((d) => d.total), backgroundColor: "#0e7c4a" }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+    });
+  }
+  const modeCanvas = $("#modeChart");
+  if (modeCanvas && weekly.paymentModes.length) {
+    if (modeChart) modeChart.destroy();
+    modeChart = new Chart(modeCanvas, {
+      type: "doughnut",
+      data: {
+        labels: weekly.paymentModes.map((m) => m.payment_mode),
+        datasets: [{ data: weekly.paymentModes.map((m) => m.total), backgroundColor: ["#0e7c4a", "#e8a33d", "#c0233a", "#3b6bc9"] }],
+      },
+    });
+  }
 }
 
 function pageBilling() {
