@@ -5,11 +5,19 @@ const S = {
   shop: null,
   products: [],
   customers: [],
-  billItems: [], // [{productId, name, price, qty}]
+  billItems: [],
 };
 
 function isLoggedIn() {
   return !!S.user;
+}
+
+function goTo(hash) {
+  if (location.hash === "#" + hash) {
+    render();
+  } else {
+    location.hash = hash;
+  }
 }
 
 async function tryRestoreSession() {
@@ -23,7 +31,6 @@ async function tryRestoreSession() {
   }
 }
 
-// ---------------------------------------------------------------- shell ----
 function headerNav() {
   if (!isLoggedIn()) return "";
   return `
@@ -42,7 +49,6 @@ function renderShell(bodyHtml) {
   $("#app").innerHTML = bodyHtml;
 }
 
-// ----------------------------------------------------------------- auth ----
 function pageLogin() {
   return `
     <div class="card">
@@ -63,7 +69,7 @@ async function doLogin() {
     S.user = user;
     S.shop = shop;
     await bootData();
-    location.hash = "dashboard";
+    goTo("dashboard");
   } catch (err) {
     $("#l_err").textContent = err.message;
     renderShell(pageLogin());
@@ -98,7 +104,7 @@ async function doSignup() {
     S.user = user;
     S.shop = shop;
     await bootData();
-    location.hash = "dashboard";
+    goTo("dashboard");
   } catch (err) {
     $("#s_err").textContent = err.message;
     renderShell(pageSignup());
@@ -109,10 +115,9 @@ async function logout() {
   await api.post("/auth/logout");
   S.user = null;
   S.shop = null;
-  location.hash = "login";
+  goTo("login");
 }
 
-// ------------------------------------------------------------- dashboard --
 async function pageDashboard() {
   const summary = await api.get("/dashboard/summary");
   return `
@@ -136,7 +141,6 @@ async function pageDashboard() {
   `;
 }
 
-// --------------------------------------------------------------- billing --
 function pageBilling() {
   return `
     <h2>New Bill</h2>
@@ -253,7 +257,7 @@ async function submitBill() {
       paidAmount: mode === "Partial" ? parseFloat($("#b_paid").value) || 0 : undefined,
     });
     S.billItems = [];
-    await bootData(); // refresh stock/customer balances
+    await bootData();
     showInvoiceResult(result);
   } catch (err) {
     $("#b_err").textContent = err.message;
@@ -278,11 +282,10 @@ function showInvoiceResult(data) {
       </table>
     </div>
     <button class="btn o" onclick="window.print()">Print / Save as PDF</button>
-    <a class="btn" href="#billing">New Bill</a>
+    <a class="btn" href="#" onclick="goTo('billing');return false;">New Bill</a>
   `;
 }
 
-// ----------------------------------------------------------------- stock --
 function pageStock() {
   return `
     <h2>Stock</h2>
@@ -343,7 +346,7 @@ async function saveProduct() {
       lowStockAlert: parseFloat($("#p_low").value) || 5,
     });
     await bootData();
-    location.hash = "stock";
+    goTo("stock");
   } catch (err) {
     $("#p_err").textContent = err.message;
   }
@@ -362,7 +365,6 @@ async function adjustStock(productId, type) {
   }
 }
 
-// ------------------------------------------------------------- customers --
 function pageCustomers() {
   return `
     <h2>Customers &amp; Udhaar</h2>
@@ -405,7 +407,7 @@ async function saveCustomer() {
   try {
     await api.post("/customers", { name, phone: $("#c_phone").value.trim() || null, address: $("#c_addr").value.trim() || null });
     await bootData();
-    location.hash = "customers";
+    goTo("customers");
   } catch (err) {
     $("#c_err").textContent = err.message;
   }
@@ -433,7 +435,7 @@ async function viewCustomer(id) {
     <div class="card">
       ${invoices.map((i) => `<div>${i.invoice_number} - ${money(i.total)} (${i.payment_mode})</div>`).join("") || `<p class="muted">No bills yet.</p>`}
     </div>
-    <a class="btn o" href="#customers">Back</a>
+    <a class="btn o" href="#" onclick="goTo('customers');return false;">Back</a>
   `;
 }
 
@@ -450,7 +452,6 @@ async function recordPayment(customerId) {
   }
 }
 
-// -------------------------------------------------------------- reports --
 async function pageReports() {
   const todayInvoices = await api.get("/invoices?date=today");
   const totalToday = todayInvoices.reduce((s, d) => s + d.invoice.total, 0);
@@ -468,7 +469,6 @@ async function pageReports() {
   `;
 }
 
-// ------------------------------------------------------------------ boot --
 async function bootData() {
   const [products, customers] = await Promise.all([api.get("/products"), api.get("/customers")]);
   S.products = products;
@@ -487,13 +487,12 @@ async function render() {
     return;
   }
 
-  if (!S.products.length && !S.customers.length) await bootData();
+  await bootData();
 
   if (hash === "billing") renderShell(pageBilling());
   else if (hash === "stock") renderShell(pageStock());
   else if (hash === "customers") renderShell(pageCustomers());
   else if (hash === "reports") renderShell(await pageReports());
-  else if (hash === "dashboard" || hash === "login" || hash === "signup" || hash === "") renderShell(await pageDashboard());
   else renderShell(await pageDashboard());
 
   if (hash === "billing") renderBillTotals();
