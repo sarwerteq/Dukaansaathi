@@ -112,5 +112,15 @@ try {
 } catch {
   /* column already exists */
 }
+try {
+  db.exec("ALTER TABLE shops ADD COLUMN qr_image_path TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE products ADD COLUMN variant TEXT");
+} catch {
+  /* column already exists */
+}
 
 module.exports = db;
