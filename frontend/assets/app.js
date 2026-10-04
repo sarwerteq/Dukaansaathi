@@ -11,13 +11,12 @@ const S = {
 function isLoggedIn() {
   return !!S.user;
 }
-
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
 function goTo(hash) {
-  if (location.hash === "#" + hash) {
-    render();
-  } else {
-    location.hash = hash;
-  }
+  if (location.hash === "#" + hash) render();
+  else location.hash = hash;
 }
 
 async function tryRestoreSession() {
@@ -40,6 +39,7 @@ function headerNav() {
       <a href="#stock">Stock</a>
       <a href="#customers">Udhaar</a>
       <a href="#reports">Reports</a>
+      <a href="#settings">Settings</a>
       <a href="#" onclick="logout();return false;">Logout</a>
     </nav>`;
 }
@@ -158,10 +158,7 @@ function drawDashboardCharts(weekly) {
     if (salesChart) salesChart.destroy();
     salesChart = new Chart(salesCanvas, {
       type: "bar",
-      data: {
-        labels: weekly.days.map((d) => d.label),
-        datasets: [{ label: "Sales (₹)", data: weekly.days.map((d) => d.total), backgroundColor: "#0e7c4a" }],
-      },
+      data: { labels: weekly.days.map((d) => d.label), datasets: [{ label: "Sales (₹)", data: weekly.days.map((d) => d.total), backgroundColor: "#0e7c4a" }] },
       options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
     });
   }
@@ -170,12 +167,17 @@ function drawDashboardCharts(weekly) {
     if (modeChart) modeChart.destroy();
     modeChart = new Chart(modeCanvas, {
       type: "doughnut",
-      data: {
-        labels: weekly.paymentModes.map((m) => m.payment_mode),
-        datasets: [{ data: weekly.paymentModes.map((m) => m.total), backgroundColor: ["#0e7c4a", "#e8a33d", "#c0233a", "#3b6bc9"] }],
-      },
+      data: { labels: weekly.paymentModes.map((m) => m.payment_mode), datasets: [{ data: weekly.paymentModes.map((m) => m.total), backgroundColor: ["#0e7c4a", "#e8a33d", "#c0233a", "#3b6bc9"] }] },
     });
   }
+}
+
+function upiUri(amount, note) {
+  return `upi://pay?pa=${encodeURIComponent(S.shop.upi_id)}&pn=${encodeURIComponent(S.shop.name)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(note || "Bill payment")}`;
+}
+function upiQrImg(amount, note, size) {
+  const uri = upiUri(amount, note);
+  return `<img src="https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(uri)}" alt="UPI QR" style="width:${size}px;max-width:100%">`;
 }
 
 function pageBilling() {
@@ -199,7 +201,14 @@ function pageBilling() {
     </div>
 
     <div class="card">
-      <label>Discount (₹)</label><input id="b_discount" type="number" min="0" value="0" oninput="renderBillTotals()">
+      <label>Discount</label>
+      <div class="row">
+        <input id="b_discount" type="number" min="0" value="0" oninput="renderBillTotals()">
+        <select id="b_disc_type" onchange="renderBillTotals()">
+          <option value="amount">₹ Amount</option>
+          <option value="percent">% Percent</option>
+        </select>
+      </div>
       <div id="bill_totals"></div>
     </div>
 
@@ -211,6 +220,7 @@ function pageBilling() {
       <div id="b_partial_wrap" style="display:none">
         <label>Amount Paid Now (₹)</label><input id="b_paid" type="number" min="0" value="0">
       </div>
+      <div id="b_upi_wrap" style="display:none"></div>
     </div>
 
     <p id="b_err" class="err"></p>
@@ -259,18 +269,41 @@ function rerenderBilling() {
 function billSubtotal() {
   return S.billItems.reduce((s, i) => s + i.price * i.qty, 0);
 }
+
+function currentDiscount(subtotal) {
+  const discountInput = parseFloat($("#b_discount")?.value) || 0;
+  const discType = $("#b_disc_type")?.value || "amount";
+  return discType === "percent" ? round2((subtotal * discountInput) / 100) : round2(discountInput);
+}
+
 function renderBillTotals() {
   const mode = $("#b_mode")?.value || "Cash";
   $("#b_partial_wrap").style.display = mode === "Partial" ? "block" : "none";
   const subtotal = billSubtotal();
-  const discount = parseFloat($("#b_discount")?.value) || 0;
-  const total = Math.max(0, subtotal - discount);
+  const discType = $("#b_disc_type")?.value || "amount";
+  const discountInput = parseFloat($("#b_discount")?.value) || 0;
+  const discount = currentDiscount(subtotal);
+  const total = Math.max(0, round2(subtotal - discount));
   $("#bill_totals").innerHTML = `
     <table>
       <tr><td>Subtotal</td><td>${money(subtotal)}</td></tr>
-      <tr><td>Discount</td><td>-${money(discount)}</td></tr>
+      <tr><td>Discount${discType === "percent" ? ` (${discountInput}%)` : ""}</td><td>-${money(discount)}</td></tr>
       <tr class="tot"><td>Total</td><td>${money(total)}</td></tr>
     </table>`;
+
+  const upiWrap = $("#b_upi_wrap");
+  if (upiWrap) {
+    if (mode === "UPI" && S.shop.upi_id) {
+      upiWrap.style.display = "block";
+      upiWrap.innerHTML = `<label>Scan to Pay ${money(total)}</label><div style="text-align:center">${upiQrImg(total, "Bill payment", 220)}</div>`;
+    } else if (mode === "UPI") {
+      upiWrap.style.display = "block";
+      upiWrap.innerHTML = `<p class="err">Add your UPI ID in <a href="#settings">Settings</a> to show a payment QR.</p>`;
+    } else {
+      upiWrap.style.display = "none";
+      upiWrap.innerHTML = "";
+    }
+  }
 }
 
 async function submitBill() {
@@ -285,11 +318,13 @@ async function submitBill() {
     $("#b_err").textContent = "Select a customer for Udhaar or Partial payment.";
     return;
   }
+  const subtotal = billSubtotal();
+  const discount = currentDiscount(subtotal);
   try {
     const result = await api.post("/invoices", {
       customerId,
       items: S.billItems.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.price })),
-      discount: parseFloat($("#b_discount").value) || 0,
+      discount,
       paymentMode: mode,
       paidAmount: mode === "Partial" ? parseFloat($("#b_paid").value) || 0 : undefined,
     });
@@ -317,6 +352,7 @@ function showInvoiceResult(data) {
         <tr><td>Paid</td><td>${money(invoice.paid_amount)}</td></tr>
         <tr><td>Due (Udhaar)</td><td>${money(invoice.due_amount)}</td></tr>
       </table>
+      ${invoice.payment_mode === "UPI" && S.shop.upi_id ? `<div style="text-align:center;margin-top:10px">${upiQrImg(invoice.total, invoice.invoice_number, 200)}</div>` : ""}
     </div>
     <button class="btn o" onclick="window.print()">Print / Save as PDF</button>
     <a class="btn" href="#" onclick="goTo('billing');return false;">New Bill</a>
@@ -506,37 +542,12 @@ async function pageReports() {
   `;
 }
 
-async function bootData() {
-  const [products, customers] = await Promise.all([api.get("/products"), api.get("/customers")]);
-  S.products = products;
-  S.customers = customers;
-}
-
-async function render() {
-  const hash = (location.hash || "#login").slice(1);
-
-  if (!isLoggedIn() && !(await tryRestoreSession())) {
-    if (hash === "signup") {
-      renderShell(pageSignup());
-    } else {
-      renderShell(pageLogin());
-    }
-    return;
-  }
-
-  await bootData();
-
-  if (hash === "billing") renderShell(pageBilling());
-  else if (hash === "stock") renderShell(pageStock());
-  else if (hash === "customers") renderShell(pageCustomers());
-  else if (hash === "reports") renderShell(await pageReports());
-  else renderShell(await pageDashboard());
-
-  if (hash === "billing") renderBillTotals();
-}
-
-window.addEventListener("hashchange", () => {
-  window.scrollTo(0, 0);
-  render();
-});
-document.addEventListener("DOMContentLoaded", render);
+function pageSettings() {
+  return `
+    <h2>Shop Settings</h2>
+    <div class="card">
+      <label>Shop Name</label><input id="st_name" value="${escHtml(S.shop.name)}">
+      <label>Address</label><input id="st_addr" value="${escHtml(S.shop.address || "")}">
+      <label>UPI ID (for payment QR)</label><input id="st_upi" value="${escHtml(S.shop.upi_id || "")}" placeholder="yourname@upi">
+      <p id="st_err" class="err"></p>
+      <button class="btn" onclick="saveSettings()">S
