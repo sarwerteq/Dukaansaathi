@@ -8,19 +8,19 @@ router.use(requireAuth);
 
 router.get("/", (req, res) => {
   const rows = db
-    .prepare("SELECT * FROM products WHERE shop_id = ? AND active = 1 ORDER BY name")
+    .prepare("SELECT * FROM products WHERE shop_id = ? AND active = 1 ORDER BY category, name, variant")
     .all(req.user.shopId);
   res.json(rows);
 });
 
 router.post("/", (req, res) => {
-  const { name, category, unit, price, stockQty, lowStockAlert } = req.body || {};
+  const { name, category, variant, unit, price, stockQty, lowStockAlert } = req.body || {};
   if (!name) return res.status(400).json({ error: "Product name is required." });
   const id = uuid();
   db.prepare(
-    `INSERT INTO products (id, shop_id, name, category, unit, price, stock_qty, low_stock_alert)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, req.user.shopId, name, category || null, unit || "pcs", price || 0, stockQty || 0, lowStockAlert ?? 5);
+    `INSERT INTO products (id, shop_id, name, category, variant, unit, price, stock_qty, low_stock_alert)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, req.user.shopId, name, category || null, variant || null, unit || "pcs", price || 0, stockQty || 0, lowStockAlert ?? 5);
   if (stockQty) {
     db.prepare(
       "INSERT INTO stock_transactions (id, shop_id, product_id, type, qty, note) VALUES (?, ?, ?, 'In', ?, 'Opening stock')"
@@ -38,10 +38,11 @@ router.put("/:id", (req, res) => {
   if (!existing) return res.status(404).json({ error: "Product not found." });
   const b = req.body || {};
   db.prepare(
-    `UPDATE products SET name=?, category=?, unit=?, price=?, low_stock_alert=?, active=? WHERE id = ?`
+    `UPDATE products SET name=?, category=?, variant=?, unit=?, price=?, low_stock_alert=?, active=? WHERE id = ?`
   ).run(
     b.name ?? existing.name,
     b.category ?? existing.category,
+    b.variant ?? existing.variant,
     b.unit ?? existing.unit,
     b.price ?? existing.price,
     b.lowStockAlert ?? existing.low_stock_alert,
