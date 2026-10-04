@@ -5,6 +5,33 @@ const { requireAuth } = require("../auth");
 const router = express.Router();
 router.use(requireAuth);
 
+router.get("/weekly", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT date(created_at) AS day, COALESCE(SUM(total),0) AS total
+       FROM invoices WHERE shop_id = ? AND created_at >= datetime('now','-6 days')
+       GROUP BY date(created_at)`
+    )
+    .all(req.user.shopId);
+  const byDay = {};
+  rows.forEach((r) => (byDay[r.day] = r.total));
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ label: d.toLocaleDateString("en-IN", { weekday: "short" }), total: byDay[key] || 0 });
+  }
+
+  const paymentModes = db
+    .prepare(
+      `SELECT payment_mode, COALESCE(SUM(total),0) AS total FROM invoices
+       WHERE shop_id = ? AND date(created_at) = date('now') GROUP BY payment_mode`
+    )
+    .all(req.user.shopId);
+
+  res.json({ days, paymentModes });
+});
 router.get("/summary", (req, res) => {
   const shopId = req.user.shopId;
 
