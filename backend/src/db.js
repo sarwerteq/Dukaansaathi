@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS shops (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   address TEXT,
+  upi_id TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -103,5 +104,13 @@ CREATE TABLE IF NOT EXISTS stock_transactions (
   created_at TEXT DEFAULT (datetime('now'))
 );
 `);
+
+// Migration: add upi_id to shops created before this column existed.
+// Safe to run every time the server starts - fails quietly if it already exists.
+try {
+  db.exec("ALTER TABLE shops ADD COLUMN upi_id TEXT");
+} catch {
+  /* column already exists */
+}
 
 module.exports = db;
