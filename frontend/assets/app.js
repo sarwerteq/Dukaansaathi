@@ -298,15 +298,19 @@ function renderBillTotals() {
     if (mode === "UPI" && S.shop.upi_id) {
       upiWrap.style.display = "block";
       upiWrap.innerHTML = `<label>Scan to Pay ${money(total)}</label><div style="text-align:center">${upiQrImg(total, "Bill payment", 220)}</div>`;
+    } else if (mode === "UPI" && S.shop.qr_image_path) {
+      upiWrap.style.display = "block";
+      upiWrap.innerHTML = `<label>Scan to Pay — customer must enter ${money(total)} manually</label><div style="text-align:center"><img src="${S.shop.qr_image_path}" style="width:220px;max-width:100%"></div>`;
     } else if (mode === "UPI") {
       upiWrap.style.display = "block";
-      upiWrap.innerHTML = `<p class="err">Add your UPI ID in <a href="#settings">Settings</a> to show a payment QR.</p>`;
+      upiWrap.innerHTML = `<p class="err">Add a UPI ID or upload a QR in <a href="#settings">Settings</a> to show a payment QR.</p>`;
     } else {
       upiWrap.style.display = "none";
       upiWrap.innerHTML = "";
     }
   }
-}
+
+  }
 
 async function submitBill() {
   $("#b_err").textContent = "";
