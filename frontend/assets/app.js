@@ -360,7 +360,6 @@ function showInvoiceResult(data) {
     <a class="btn" href="#" onclick="goTo('billing');return false;">New Bill</a>
   `;
 }
-
 function pageStock() {
   return `
     <h2>Stock</h2>
@@ -368,19 +367,39 @@ function pageStock() {
     <div id="stock_list">${renderStockList()}</div>
   `;
 }
+
+function groupProducts() {
+  const groups = {};
+  S.products.forEach((p) => {
+    const key = p.category || "Uncategorized";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
+  });
+  return groups;
+}
+
 function renderStockList() {
   if (!S.products.length) return `<p class="muted">No products yet.</p>`;
-  return S.products
+  const groups = groupProducts();
+  return Object.keys(groups)
+    .sort()
     .map(
-      (p) => `
-      <div class="card">
-        <b>${escHtml(p.name)}</b> ${p.category ? `<span class="muted">(${escHtml(p.category)})</span>` : ""}<br>
-        ${money(p.price)} / ${escHtml(p.unit)} · Stock: <span class="pill ${p.stock_qty <= p.low_stock_alert ? "low" : ""}">${p.stock_qty}</span>
-        <div class="row">
-          <button class="btn sm" onclick="adjustStock('${p.id}','In')">+ Stock In</button>
-          <button class="btn sm o" onclick="adjustStock('${p.id}','Out')">- Stock Out</button>
-        </div>
-      </div>`
+      (groupName) => `
+      <h3>${escHtml(groupName)}</h3>
+      ${groups[groupName]
+        .map(
+          (p) => `
+        <div class="card">
+          <b>${escHtml(p.name)}</b>${p.variant ? ` <span class="muted">(${escHtml(p.variant)})</span>` : ""}<br>
+          ${money(p.price)} / ${escHtml(p.unit)} · Stock: <span class="pill ${p.stock_qty <= 0 ? "due" : p.stock_qty <= p.low_stock_alert ? "low" : ""}">${p.stock_qty}${p.stock_qty <= 0 ? " - Out of stock" : ""}</span>
+          <div class="row">
+            <button class="btn sm" onclick="adjustStock('${p.id}','In')">+ Stock In</button>
+            <button class="btn sm o" onclick="adjustStock('${p.id}','Out')">- Stock Out</button>
+          </div>
+          <button class="btn sm acc" onclick="showEditProduct('${p.id}')">Edit Details</button>
+        </div>`
+        )
+        .join("")}`
     )
     .join("");
 }
@@ -389,8 +408,9 @@ function showAddProduct() {
   $("#app").innerHTML = `
     <h2>Add Product</h2>
     <div class="card">
+      <label>Category / Group (e.g. Asian Paints)</label><input id="p_cat">
       <label>Name</label><input id="p_name">
-      <label>Category</label><input id="p_cat">
+      <label>Variant / Color (optional, e.g. Red, Blue)</label><input id="p_variant">
       <div class="row">
         <div><label>Unit</label><input id="p_unit" value="pcs"></div>
         <div><label>Price (₹)</label><input id="p_price" type="number" min="0"></div>
@@ -415,6 +435,7 @@ async function saveProduct() {
     await api.post("/products", {
       name,
       category: $("#p_cat").value.trim() || null,
+      variant: $("#p_variant").value.trim() || null,
       unit: $("#p_unit").value.trim() || "pcs",
       price: parseFloat($("#p_price").value) || 0,
       stockQty: parseFloat($("#p_stock").value) || 0,
@@ -426,6 +447,51 @@ async function saveProduct() {
     $("#p_err").textContent = err.message;
   }
 }
+
+function showEditProduct(productId) {
+  const p = S.products.find((x) => x.id === productId);
+  if (!p) return;
+  $("#app").innerHTML = `
+    <h2>Edit Product</h2>
+    <div class="card">
+      <label>Category / Group</label><input id="e_cat" value="${escHtml(p.category || "")}">
+      <label>Name</label><input id="e_name" value="${escHtml(p.name)}">
+      <label>Variant / Color (optional)</label><input id="e_variant" value="${escHtml(p.variant || "")}">
+      <div class="row">
+        <div><label>Unit</label><input id="e_unit" value="${escHtml(p.unit)}"></div>
+        <div><label>Price (₹)</label><input id="e_price" type="number" min="0" value="${p.price}"></div>
+      </div>
+      <label>Low Stock Alert</label><input id="e_low" type="number" min="0" value="${p.low_stock_alert}">
+      <p class="muted">To change the stock quantity itself, use Stock In / Stock Out on the Stock page instead.</p>
+      <p id="e_err" class="err"></p>
+      <button class="btn" onclick="saveEditProduct('${p.id}')">Save Changes</button>
+      <button class="btn o" href="#" onclick="goTo('stock')">Cancel</button>
+    </div>`;
+}
+
+async function saveEditProduct(productId) {
+  $("#e_err").textContent = "";
+  const name = $("#e_name").value.trim();
+  if (!name) {
+    $("#e_err").textContent = "Product name is required.";
+    return;
+  }
+  try {
+    await api.put(`/products/${productId}`, {
+      name,
+      category: $("#e_cat").value.trim() || null,
+      variant: $("#e_variant").value.trim() || null,
+      unit: $("#e_unit").value.trim() || "pcs",
+      price: parseFloat($("#e_price").value) || 0,
+      lowStockAlert: parseFloat($("#e_low").value) || 5,
+    });
+    await bootData();
+    goTo("stock");
+  } catch (err) {
+    $("#e_err").textContent = err.message;
+  }
+}
+
 
 async function adjustStock(productId, type) {
   const qty = prompt(type === "In" ? "How many units are you adding?" : "How many units are you removing?");
