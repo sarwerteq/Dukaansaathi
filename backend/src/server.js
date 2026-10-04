@@ -20,6 +20,7 @@ const origins = (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).
 app.use(cors({ origin: origins.length ? origins : true, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
