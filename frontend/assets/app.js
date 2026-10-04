@@ -358,7 +358,7 @@ function showInvoiceResult(data) {
         <tr><td>Paid</td><td>${money(invoice.paid_amount)}</td></tr>
         <tr><td>Due (Udhaar)</td><td>${money(invoice.due_amount)}</td></tr>
       </table>
-      ${invoice.payment_mode === "UPI" && S.shop.upi_id ? `<div style="text-align:center;margin-top:10px">${upiQrImg(invoice.total, invoice.invoice_number, 200)}</div>` : ""}
+      ${invoice.payment_mode === "UPI" && S.shop.upi_id ? `<div style="text-align:center;margin-top:10px">${upiQrImg(invoice.total, invoice.invoice_number, 200)}</div>` : invoice.payment_mode === "UPI" && S.shop.qr_image_path ? `<div style="text-align:center;margin-top:10px"><img src="${S.shop.qr_image_path}" style="width:200px;max-width:100%"><p class="muted">Customer must enter ${money(invoice.total)} manually</p></div>` : ""}
     </div>
     <button class="btn o" onclick="window.print()">Print / Save as PDF</button>
     <a class="btn" href="#" onclick="goTo('billing');return false;">New Bill</a>
