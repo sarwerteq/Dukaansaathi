@@ -21,6 +21,7 @@ const api = {
   get: (path) => apiRequest("GET", path),
   post: (path, body) => apiRequest("POST", path, body),
   put: (path, body) => apiRequest("PUT", path, body),
+  del: (path) => apiRequest("DELETE", path),
 };
 
 function escHtml(s) {
