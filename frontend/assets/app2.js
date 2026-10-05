@@ -169,25 +169,38 @@ async function bootData() {
   S.customers = customers;
 }
 
-async function render() {
-  const hash = (location.hash || "#login").slice(1);
+const PROTECTED_HASHES = ["dashboard", "billing", "stock", "customers", "reports", "settings"];
 
-  if (!isLoggedIn() && !(await tryRestoreSession())) {
-    if (hash === "signup") renderShell(pageSignup());
-    else renderShell(pageLogin());
+async function render() {
+  const hash = (location.hash || "#home").slice(1);
+
+  if (!isLoggedIn()) await tryRestoreSession();
+
+  if (hash === "login") {
+    renderShell(pageLogin());
+    return;
+  }
+  if (hash === "signup") {
+    renderShell(pageSignup());
+    return;
+  }
+  if (PROTECTED_HASHES.includes(hash)) {
+    if (!isLoggedIn()) {
+      renderShell(pageLogin());
+      return;
+    }
+    await bootData();
+    if (hash === "billing") renderShell(pageBilling());
+    else if (hash === "stock") renderShell(pageStock());
+    else if (hash === "customers") renderShell(pageCustomers());
+    else if (hash === "reports") renderShell(await pageReports());
+    else if (hash === "settings") renderShell(pageSettings());
+    else renderShell(await pageDashboard());
+    if (hash === "billing") renderBillTotals();
     return;
   }
 
-  await bootData();
-
-  if (hash === "billing") renderShell(pageBilling());
-  else if (hash === "stock") renderShell(pageStock());
-  else if (hash === "customers") renderShell(pageCustomers());
-  else if (hash === "reports") renderShell(await pageReports());
-  else if (hash === "settings") renderShell(pageSettings());
-  else renderShell(await pageDashboard());
-
-  if (hash === "billing") renderBillTotals();
+  renderShell(pageHome());
 }
 
 window.addEventListener("hashchange", () => {
