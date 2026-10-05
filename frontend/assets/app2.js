@@ -94,6 +94,12 @@ function pageSettings() {
       <button class="btn" onclick="saveSettings()">Save Settings</button>
     </div>
     <div class="card">
+      <label>Shop Profile Image</label>
+      <input type="file" accept="image/*" onchange="uploadLogo(this)">
+      ${S.shop.logo_path ? `<img src="${S.shop.logo_path}" alt="Shop logo" style="width:120px;border-radius:10px;display:block;margin-top:8px">` : `<p class="muted">No shop image yet.</p>`}
+      <p id="logo_err" class="err"></p>
+    </div>
+    <div class="card">
       <label>Or upload your own QR code image</label>
       <input type="file" accept="image/*" onchange="uploadQr(this)">
       <p class="muted">Use this if you'd rather show a fixed QR (e.g. one from your bank). It will NOT auto-fill the amount — the customer must type it in themselves.</p>
@@ -101,7 +107,26 @@ function pageSettings() {
       <p id="qr_err" class="err"></p>
     </div>`;
 }
-
+async function uploadLogo(input) {
+  $("#logo_err").textContent = "";
+  const file = input.files[0];
+  if (!file) return;
+  if (!/^image\//.test(file.type) || file.size > 5 * 1024 * 1024) {
+    $("#logo_err").textContent = "Please choose an image under 5 MB.";
+    return;
+  }
+  const form = new FormData();
+  form.append("logo", file);
+  try {
+    const res = await fetch("/api/shop/logo", { method: "POST", credentials: "include", body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Upload failed.");
+    S.shop = data;
+    goTo("settings");
+  } catch (err) {
+    $("#logo_err").textContent = err.message;
+  }
+}
 async function uploadQr(input) {
   $("#qr_err").textContent = "";
   const file = input.files[0];
