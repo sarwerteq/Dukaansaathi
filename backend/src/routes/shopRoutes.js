@@ -55,4 +55,14 @@ router.post("/qr", (req, res) => {
   });
 });
 
+// POST /api/shop/logo  (multipart/form-data, field name "logo")
+router.post("/logo", (req, res) => {
+  upload.single("logo")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: "No image file received." });
+    db.prepare("UPDATE shops SET logo_path = ? WHERE id = ?").run(`/uploads/${req.file.filename}`, req.user.shopId);
+    res.status(201).json(db.prepare("SELECT * FROM shops WHERE id = ?").get(req.user.shopId));
+  });
+});
+
 module.exports = router;
