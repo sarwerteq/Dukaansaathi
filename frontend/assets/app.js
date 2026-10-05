@@ -31,7 +31,9 @@ async function tryRestoreSession() {
 }
 
 function headerNav() {
-  if (!isLoggedIn()) return "";
+  if (!isLoggedIn()) {
+    return `<nav><a href="#login">Login</a><a href="#signup">Sign Up</a></nav>`;
+  }
   return `
     <nav>
       <a href="#dashboard">Dashboard</a>
@@ -45,11 +47,23 @@ function headerNav() {
 }
 
 function renderShell(bodyHtml) {
-  $("#header").innerHTML = `<b>${isLoggedIn() ? escHtml(S.shop.name) : "DukaanSaathi"}</b>${headerNav()}`;
+  const logo = isLoggedIn() && S.shop.logo_path ? `<img src="${S.shop.logo_path}" style="height:28px;width:28px;border-radius:6px;vertical-align:middle;margin-right:6px">` : "";
+  $("#header").innerHTML = `<b>${logo}${isLoggedIn() ? escHtml(S.shop.name) : "DukaanSaathi"}</b>${headerNav()}`;
   $("#app").innerHTML = bodyHtml;
 }
 
 let otpMode = "password";
+
+function pageHome() {
+  return `
+    <div class="card">
+      <h2>DukaanSaathi</h2>
+      <p class="muted">Billing, Stock &amp; Udhaar for your shop</p>
+      <p>Make bills in seconds, track stock, manage customer udhaar and see your daily sales — all from your phone.</p>
+      <a class="btn" href="#login">Log In</a>
+      <a class="btn o" href="#signup">Create a Shop Account</a>
+    </div>`;
+}
 
 function pageLogin() {
   return `
