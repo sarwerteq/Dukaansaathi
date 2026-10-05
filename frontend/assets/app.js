@@ -49,15 +49,33 @@ function renderShell(bodyHtml) {
   $("#app").innerHTML = bodyHtml;
 }
 
+let otpMode = "password";
+
 function pageLogin() {
   return `
     <div class="card">
       <h2>DukaanSaathi</h2>
       <p class="muted">Billing, Stock &amp; Udhaar for your shop</p>
-      <label>Phone Number</label><input id="l_phone" type="tel" maxlength="10">
-      <label>Password</label><input id="l_pass" type="password">
-      <p id="l_err" class="err"></p>
-      <button class="btn" onclick="doLogin()">Log In</button>
+      <div class="tabbar">
+        <button class="${otpMode === "password" ? "on" : ""}" onclick="otpMode='password';render()">Password</button>
+        <button class="${otpMode === "otp" ? "on" : ""}" onclick="otpMode='otp';render()">Email OTP</button>
+      </div>
+      ${otpMode === "password" ? `
+        <label>Phone Number</label><input id="l_phone" type="tel" maxlength="10">
+        <label>Password</label><input id="l_pass" type="password">
+        <p id="l_err" class="err"></p>
+        <button class="btn" onclick="doLogin()">Log In</button>
+      ` : `
+        <label>Phone Number or Email</label><input id="o_identifier">
+        <p id="o_step1_err" class="err"></p>
+        <button class="btn" onclick="requestOtp()">Send Code</button>
+        <div id="o_step2" style="display:none">
+          <p id="o_sent_msg" class="muted"></p>
+          <label>Enter the 6-digit code</label><input id="o_code" maxlength="6" inputmode="numeric">
+          <p id="o_step2_err" class="err"></p>
+          <button class="btn" onclick="verifyOtp()">Verify &amp; Log In</button>
+        </div>
+      `}
       <p class="muted">New shop? <a href="#signup">Create an account</a></p>
     </div>`;
 }
@@ -76,6 +94,37 @@ async function doLogin() {
   }
 }
 
+async function requestOtp() {
+  $("#o_step1_err").textContent = "";
+  const identifier = $("#o_identifier").value.trim();
+  if (!identifier) {
+    $("#o_step1_err").textContent = "Enter your phone number or email.";
+    return;
+  }
+  try {
+    const { maskedEmail } = await api.post("/auth/otp/request", { identifier });
+    $("#o_sent_msg").textContent = "Code sent to " + maskedEmail;
+    $("#o_step2").style.display = "block";
+  } catch (err) {
+    $("#o_step1_err").textContent = err.message;
+  }
+}
+
+async function verifyOtp() {
+  $("#o_step2_err").textContent = "";
+  const identifier = $("#o_identifier").value.trim();
+  const code = $("#o_code").value.trim();
+  try {
+    const { user, shop } = await api.post("/auth/otp/verify", { identifier, code });
+    S.user = user;
+    S.shop = shop;
+    await bootData();
+    goTo("dashboard");
+  } catch (err) {
+    $("#o_step2_err").textContent = err.message;
+  }
+}
+
 function pageSignup() {
   return `
     <div class="card">
@@ -83,6 +132,7 @@ function pageSignup() {
       <label>Shop Name</label><input id="s_shop">
       <label>Owner Name</label><input id="s_owner">
       <label>Phone Number</label><input id="s_phone" type="tel" maxlength="10">
+      <label>Email (used for login codes)</label><input id="s_email" type="email">
       <label>Password</label><input id="s_pass" type="password">
       <label>Shop Address (optional)</label><input id="s_addr">
       <p id="s_err" class="err"></p>
@@ -98,6 +148,7 @@ async function doSignup() {
       shopName: $("#s_shop").value.trim(),
       ownerName: $("#s_owner").value.trim(),
       phone: $("#s_phone").value.trim(),
+      email: $("#s_email").value.trim(),
       password: $("#s_pass").value,
       address: $("#s_addr").value.trim() || null,
     });
@@ -505,6 +556,16 @@ async function adjustStock(productId, type) {
   if (!amount || amount <= 0) return;
   try {
     await api.post(`/products/${productId}/adjust-stock`, { qty: amount, type, note: type === "In" ? "Restock" : "Manual removal" });
+    await bootData();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+async function deleteProduct(productId, name) {
+  if (!confirm("Delete " + name + "? This removes it from your stock list. Its past bills are kept.")) return;
+  try {
+    await api.del(`/products/${productId}`);
     await bootData();
     render();
   } catch (err) {
