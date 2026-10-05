@@ -122,5 +122,27 @@ try {
 } catch {
   /* column already exists */
 }
+try {
+  db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE shops ADD COLUMN logo_path TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS otps (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+} catch {
+  /* table already exists */
+}
 
 module.exports = db;
