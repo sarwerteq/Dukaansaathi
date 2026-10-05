@@ -468,7 +468,6 @@ function renderStockList() {
           <button class="btn sm acc" onclick="showEditProduct('${p.id}')">Edit Details</button>
           <button class="btn sm bad" onclick="deleteProduct('${p.id}','${escHtml(p.name)}')">Delete</button>
         </div>`
-        </div>`
         )
         .join("")}`
     )
