@@ -103,6 +103,17 @@ async function doLogin() {
     await bootData();
     goTo("dashboard");
   } catch (err) {
+    if (err.needsVerification) {
+      pendingVerifyIdentifier = err.identifier;
+      try {
+        const { maskedEmail } = await api.post("/auth/otp/request", { identifier: err.identifier });
+        renderShell(pageVerifyEmail(maskedEmail));
+        return;
+      } catch (e2) {
+        renderShell(pageVerifyEmail(null, e2.message));
+        return;
+      }
+    }
     $("#l_err").textContent = err.message;
     renderShell(pageLogin());
   }
@@ -155,10 +166,12 @@ function pageSignup() {
     </div>`;
 }
 
+let pendingVerifyIdentifier = null;
+
 async function doSignup() {
   $("#s_err").textContent = "";
   try {
-    const { user, shop } = await api.post("/auth/signup", {
+    const result = await api.post("/auth/signup", {
       shopName: $("#s_shop").value.trim(),
       ownerName: $("#s_owner").value.trim(),
       phone: $("#s_phone").value.trim(),
@@ -166,13 +179,49 @@ async function doSignup() {
       password: $("#s_pass").value,
       address: $("#s_addr").value.trim() || null,
     });
+    pendingVerifyIdentifier = result.identifier;
+    renderShell(pageVerifyEmail(result.maskedEmail, result.warning));
+  } catch (err) {
+    $("#s_err").textContent = err.message;
+    renderShell(pageSignup());
+  }
+}
+
+function pageVerifyEmail(maskedEmail, warning) {
+  return `
+    <div class="card">
+      <h2>Verify Your Email</h2>
+      ${warning ? `<p class="err">${escHtml(warning)}</p>` : `<p class="muted">We sent a 6-digit code to ${escHtml(maskedEmail || "your email")}.</p>`}
+      <label>Enter the code</label><input id="v_code" maxlength="6" inputmode="numeric">
+      <p id="v_err" class="err"></p>
+      <button class="btn" onclick="verifySignupEmail()">Verify &amp; Continue</button>
+      <button class="btn o" onclick="resendVerifyCode()">Resend Code</button>
+    </div>`;
+}
+
+async function verifySignupEmail() {
+  $("#v_err").textContent = "";
+  try {
+    const { user, shop } = await api.post("/auth/otp/verify", {
+      identifier: pendingVerifyIdentifier,
+      code: $("#v_code").value.trim(),
+    });
     S.user = user;
     S.shop = shop;
     await bootData();
     goTo("dashboard");
   } catch (err) {
-    $("#s_err").textContent = err.message;
-    renderShell(pageSignup());
+    $("#v_err").textContent = err.message;
+  }
+}
+
+async function resendVerifyCode() {
+  $("#v_err").textContent = "";
+  try {
+    const { maskedEmail } = await api.post("/auth/otp/request", { identifier: pendingVerifyIdentifier });
+    renderShell(pageVerifyEmail(maskedEmail));
+  } catch (err) {
+    $("#v_err").textContent = err.message;
   }
 }
 
