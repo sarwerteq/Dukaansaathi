@@ -13,8 +13,12 @@ async function apiRequest(method, path, body) {
   } catch {
     /* empty */
   }
-  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
-  return data;
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Request failed (${res.status})`);
+    if (data?.needsVerification) err.needsVerification = true;
+    if (data?.identifier) err.identifier = data.identifier;
+    throw err;
+  }
 }
 
 const api = {
