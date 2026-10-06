@@ -18,8 +18,17 @@ function setCookie(res, token) {
   });
 }
 
+async function sendSignupOtp(user) {
+  const code = String(crypto.randomInt(100000, 999999));
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  db.prepare("INSERT INTO otps (id, user_id, code, expires_at) VALUES (?, ?, ?, ?)").run(uuid(), user.id, code, expiresAt);
+  await sendOtpEmail(user.email, code);
+}
+
 // POST /api/auth/signup  { shopName, ownerName, phone, email, password, address }
-router.post("/signup", (req, res) => {
+// Creates the account but does NOT log the user in yet - email_verified
+// stays 0 until they confirm the code we just emailed them.
+router.post("/signup", async (req, res) => {
   const { shopName, ownerName, phone, email, password, address } = req.body || {};
   if (!shopName || !ownerName || !phone || !email || !password) {
     return res.status(400).json({ error: "Shop name, owner name, phone, email and password are required." });
@@ -33,9 +42,7 @@ router.post("/signup", (req, res) => {
   if (String(password).length < 6) {
     return res.status(400).json({ error: "Password must be at least 6 characters." });
   }
-  const existing = db
-    .prepare("SELECT id FROM users WHERE phone = ? OR email = ?")
-    .get(phone, email);
+  const existing = db.prepare("SELECT id FROM users WHERE phone = ? OR email = ?").get(phone, email);
   if (existing) {
     return res.status(409).json({ error: "An account with this phone number or email already exists." });
   }
@@ -45,18 +52,28 @@ router.post("/signup", (req, res) => {
     db.prepare("INSERT INTO shops (id, name, address) VALUES (?, ?, ?)").run(shopId, shopName, address || null);
     const userId = uuid();
     db.prepare(
-      "INSERT INTO users (id, shop_id, name, phone, email, password_hash, role) VALUES (?, ?, ?, ?, ?, ?, 'owner')"
+      "INSERT INTO users (id, shop_id, name, phone, email, password_hash, role, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'owner', 0)"
     ).run(userId, shopId, ownerName, phone, email, bcrypt.hashSync(password, 10));
-    return { id: userId, shop_id: shopId, name: ownerName, role: "owner" };
+    return { id: userId, email };
   });
 
   const user = tx();
-  const token = signToken(user);
-  setCookie(res, token);
-  res.status(201).json({ token, user: { id: user.id, name: user.name, role: user.role }, shop: { id: user.shop_id, name: shopName } });
+
+  try {
+    await sendSignupOtp(user);
+  } catch (err) {
+    return res.status(201).json({
+      pendingVerification: true,
+      identifier: email,
+      warning: "Account created, but the verification email could not be sent: " + err.message + ". Tap Resend Code to try again.",
+    });
+  }
+
+  const masked = email.replace(/^(.)(.*)(@.*)$/, (m, a, b, c) => a + "*".repeat(Math.max(b.length, 1)) + c);
+  res.status(201).json({ pendingVerification: true, identifier: email, maskedEmail: masked });
 });
 
-// POST /api/auth/login  { phone, password }  - original password-based login, kept for existing accounts.
+// POST /api/auth/login  { phone, password }
 router.post("/login", (req, res) => {
   const { phone, password } = req.body || {};
   if (!phone || !password) return res.status(400).json({ error: "Phone and password are required." });
@@ -64,22 +81,27 @@ router.post("/login", (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: "Invalid phone number or password." });
   }
+  if (!user.email_verified) {
+    return res.status(403).json({
+      error: "Please verify your email first.",
+      needsVerification: true,
+      identifier: user.email,
+    });
+  }
   const token = signToken(user);
   setCookie(res, token);
   const shop = db.prepare("SELECT * FROM shops WHERE id = ?").get(user.shop_id);
   res.json({ token, user: { id: user.id, name: user.name, role: user.role }, shop });
 });
 
-// POST /api/auth/otp/request  { identifier }  - identifier is a phone number or an email.
-// The code is always emailed to the account's registered email address,
-// since that is the only delivery method set up on this server.
+// POST /api/auth/otp/request  { identifier }
 router.post("/otp/request", async (req, res) => {
   const identifier = (req.body?.identifier || "").trim();
   if (!identifier) return res.status(400).json({ error: "Enter your phone number or email." });
   const user = db.prepare("SELECT * FROM users WHERE phone = ? OR email = ?").get(identifier, identifier);
   if (!user) return res.status(404).json({ error: "No account found with that phone number or email." });
   if (!user.email) {
-    return res.status(400).json({ error: "This account has no email on file yet. Log in with your password and add an email in Settings first." });
+    return res.status(400).json({ error: "This account has no email on file yet." });
   }
 
   const code = String(crypto.randomInt(100000, 999999));
@@ -96,6 +118,7 @@ router.post("/otp/request", async (req, res) => {
 });
 
 // POST /api/auth/otp/verify  { identifier, code }
+// Used for BOTH login-by-OTP and confirming a new signup's email.
 router.post("/otp/verify", (req, res) => {
   const identifier = (req.body?.identifier || "").trim();
   const code = (req.body?.code || "").trim();
@@ -104,14 +127,17 @@ router.post("/otp/verify", (req, res) => {
   if (!user) return res.status(404).json({ error: "No account found with that phone number or email." });
 
   const otp = db
-    .prepare(
-      "SELECT * FROM otps WHERE user_id = ? AND code = ? AND used = 0 ORDER BY created_at DESC LIMIT 1"
-    )
+    .prepare("SELECT * FROM otps WHERE user_id = ? AND code = ? AND used = 0 ORDER BY created_at DESC LIMIT 1")
     .get(user.id, code);
   if (!otp) return res.status(401).json({ error: "Incorrect code." });
   if (new Date(otp.expires_at) < new Date()) return res.status(401).json({ error: "This code has expired. Request a new one." });
 
-  db.prepare("UPDATE otps SET used = 1 WHERE id = ?").run(otp.id);
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE otps SET used = 1 WHERE id = ?").run(otp.id);
+    db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(user.id);
+  });
+  tx();
+
   const token = signToken(user);
   setCookie(res, token);
   const shop = db.prepare("SELECT * FROM shops WHERE id = ?").get(user.shop_id);
