@@ -19,6 +19,7 @@ async function apiRequest(method, path, body) {
     if (data?.identifier) err.identifier = data.identifier;
     throw err;
   }
+  return data;
 }
 
 const api = {
