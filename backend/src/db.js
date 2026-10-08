@@ -2,6 +2,17 @@ const path = require("path");
 const fs = require("fs");
 const Database = require("better-sqlite3");
 
+// Reserved for a future managed-Postgres migration. Nothing reads this
+// yet - failing fast here (instead of silently ignoring it) avoids the
+// confusing situation where someone sets DATABASE_URL expecting it to
+// work and the app quietly keeps using SQLite anyway.
+if (process.env.DATABASE_URL && /^postgres/i.test(process.env.DATABASE_URL)) {
+  throw new Error(
+    "DATABASE_URL is set to a Postgres connection string, but PostgreSQL support is not wired in yet. " +
+      "Unset DATABASE_URL (or point DATABASE_FILE at a local SQLite path) until a Postgres adapter is added."
+  );
+}
+
 const dbFile = process.env.DATABASE_FILE || "./data/dukaansaathi.db";
 const dir = path.dirname(dbFile);
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -136,6 +147,18 @@ try {
   db.exec("ALTER TABLE shops ADD COLUMN logo_path TEXT");
 } catch {
   /* column already exists */
+}
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
+    id TEXT PRIMARY KEY,
+    shop_id TEXT NOT NULL,
+    client_transaction_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_log_shop_txn ON sync_log(shop_id, client_transaction_id)");
+} catch {
+  /* table/index already exists */
 }
 try {
   db.exec("ALTER TABLE invoices ADD COLUMN client_transaction_id TEXT");
