@@ -6,8 +6,9 @@
 // filters by the CURRENT logged-in shop's id, so switching accounts on
 // the same device never shows one shop's cached data to another.
 
+
 const DB_NAME = "dukaansaathi_offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise = null;
 
 function openOfflineDb() {
@@ -20,6 +21,10 @@ function openOfflineDb() {
       if (!db.objectStoreNames.contains("products")) db.createObjectStore("products", { keyPath: "id" });
       if (!db.objectStoreNames.contains("customers")) db.createObjectStore("customers", { keyPath: "id" });
       if (!db.objectStoreNames.contains("pendingBills")) db.createObjectStore("pendingBills", { keyPath: "clientTransactionId" });
+      // Generic queue for offline operations that are NOT bills (udhaar
+      // payments, stock adjustments). Bills keep using pendingBills above
+      // unchanged - this is additive, nothing existing is touched.
+      if (!db.objectStoreNames.contains("syncQueue")) db.createObjectStore("syncQueue", { keyPath: "clientTransactionId" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -220,6 +225,100 @@ function isOnline() {
   return navigator.onLine;
 }
 
+cat > /home/claude/ds_offline/newtail.js << 'TAILEOF'
+async function queueOfflineOperation(shopId, entityType, payload) {
+  const clientTransactionId = uuid();
+  const record = {
+    clientTransactionId,
+    shopId,
+    entityType,
+    payload,
+    status: "PENDING",
+    retryCount: 0,
+    lastError: null,
+    createdAt: new Date().toISOString(),
+    syncedAt: null,
+  };
+  await tx("syncQueue", "readwrite", (store) => store.put(record));
+  return record;
+}
+
+async function getQueuedOperations(shopId) {
+  const db = await openOfflineDb();
+  return new Promise((resolve) => {
+    const req = db.transaction("syncQueue", "readonly").objectStore("syncQueue").getAll();
+    req.onsuccess = () => resolve((req.result || []).filter((o) => o.shopId === shopId));
+    req.onerror = () => resolve([]);
+  });
+}
+async function countQueuedOperations(shopId) {
+  const ops = await getQueuedOperations(shopId);
+  return ops.filter((o) => o.status === "PENDING" || o.status === "FAILED").length;
+}
+async function removeQueuedOperation(clientTransactionId) {
+  await tx("syncQueue", "readwrite", (store) => store.delete(clientTransactionId));
+}
+async function markQueuedOperation(clientTransactionId, status, extra) {
+  await tx("syncQueue", "readwrite", (store) => {
+    const req = store.get(clientTransactionId);
+    req.onsuccess = () => {
+      const record = req.result;
+      if (!record) return;
+      store.put({ ...record, status, ...extra });
+    };
+  });
+}
+
+let queueSyncInFlight = false;
+async function syncQueuedOperations(shopId) {
+  if (queueSyncInFlight) return { synced: 0, conflicts: 0, errors: 0 };
+  queueSyncInFlight = true;
+  try {
+    const ops = (await getQueuedOperations(shopId)).filter((o) => o.status === "PENDING" || o.status === "FAILED");
+    if (!ops.length) return { synced: 0, conflicts: 0, errors: 0 };
+
+    const res = await fetch("/api/sync/push", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operations: ops.map((o) => ({ clientTransactionId: o.clientTransactionId, entityType: o.entityType, payload: o.payload })),
+      }),
+    });
+    if (!res.ok) {
+      for (const o of ops) {
+        await markQueuedOperation(o.clientTransactionId, "FAILED", { retryCount: (o.retryCount || 0) + 1, lastError: `Server rejected sync (${res.status})` });
+      }
+      return { synced: 0, conflicts: 0, errors: ops.length };
+    }
+    const { results } = await res.json();
+    let synced = 0,
+      conflicts = 0,
+      errors = 0;
+    for (const r of results) {
+      if (r.status === "synced") {
+        await removeQueuedOperation(r.clientTransactionId);
+        synced++;
+      } else if (r.status === "conflict") {
+        await markQueuedOperation(r.clientTransactionId, "CONFLICT", { lastError: r.error });
+        conflicts++;
+      } else {
+        const existing = ops.find((o) => o.clientTransactionId === r.clientTransactionId);
+        await markQueuedOperation(r.clientTransactionId, "FAILED", {
+          retryCount: ((existing && existing.retryCount) || 0) + 1,
+          lastError: r.error,
+        });
+        errors++;
+      }
+    }
+    return { synced, conflicts, errors };
+  } catch (err) {
+    return { synced: 0, conflicts: 0, errors: 0, networkError: true };
+  } finally {
+    queueSyncInFlight = false;
+  }
+}
+
 const DukaanOffline = {
   cacheSession,
   getCachedSession,
@@ -232,5 +331,20 @@ const DukaanOffline = {
   getPendingBills,
   countPendingBills,
   syncPendingBills,
+  queueOfflineOperation,
+  getQueuedOperations,
+  countQueuedOperations,
+  syncQueuedOperations,
   isOnline,
 };
+TAILEOF
+
+python3 << 'PYEOF'
+content = open('/home/claude/ds_offline/offline_v2_full.js').read()
+marker = "const DukaanOffline = {"
+idx = content.index(marker)
+head = content[:idx]
+tail = open('/home/claude/ds_offline/newtail.js').read()
+open('/home/claude/ds_offline/offline_v2_merged.js', 'w').write(head + tail)
+PYEOF
+node --check /home/claude/ds_offline/offline_v2_merged.js && echo "MERGED OK"
