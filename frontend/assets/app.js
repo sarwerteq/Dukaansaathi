@@ -673,19 +673,36 @@ async function saveEditProduct(productId) {
   }
 }
 
-
 async function adjustStock(productId, type) {
   const qty = prompt(type === "In" ? "How many units are you adding?" : "How many units are you removing?");
   const amount = parseFloat(qty);
   if (!amount || amount <= 0) return;
+  const note = type === "In" ? "Restock" : "Manual removal";
+
+  if (!DukaanOffline.isOnline()) {
+    await DukaanOffline.queueOfflineOperation(S.shop.id, "stock_adjustment", { productId, qty: amount, type, note: note + " (offline)" });
+    const product = S.products.find((p) => p.id === productId);
+    if (product) product.stock_qty = Math.max(0, product.stock_qty + (type === "Out" ? -amount : amount));
+    if (typeof updateNetStatus === "function") updateNetStatus();
+    render();
+    return;
+  }
+
   try {
-    await api.post(`/products/${productId}/adjust-stock`, { qty: amount, type, note: type === "In" ? "Restock" : "Manual removal" });
+    await api.post(`/products/${productId}/adjust-stock`, { qty: amount, type, note });
     await bootData();
     render();
   } catch (err) {
+    if (err.message && /fetch|network|failed/i.test(err.message)) {
+      await DukaanOffline.queueOfflineOperation(S.shop.id, "stock_adjustment", { productId, qty: amount, type, note: note + " (offline)" });
+      if (typeof updateNetStatus === "function") updateNetStatus();
+      render();
+      return;
+    }
     alert(err.message);
   }
 }
+
 async function deleteProduct(productId, name) {
   if (!confirm("Delete " + name + "? This removes it from your stock list. Its past bills are kept.")) return;
   try {
