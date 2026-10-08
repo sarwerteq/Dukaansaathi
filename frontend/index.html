@@ -10,10 +10,17 @@
 </head>
 <body>
   <header id="header"><b>DukaanSaathi</b></header>
-  <main id="app"><p style="text-align:center;padding:40px">Loading…</p></main>
+<div id="net_status" style="text-align:center;padding:4px;font-size:13px;background:#eee"></div>
+<main id="app"><p style="text-align:center;padding:40px">Loading…</p></main>
 
  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
   <script src="/assets/api.js"></script>
+  <script src="/assets/offline.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  </script>
   <script src="/assets/app.js"></script>
   <script src="/assets/app2.js"></script>
 </body>
