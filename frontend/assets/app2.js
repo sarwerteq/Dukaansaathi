@@ -187,11 +187,15 @@ async function saveSettings() {
 }
 async function manualSync() {
   $("#sync_status").textContent = "Syncing...";
-  const result = await DukaanOffline.syncPendingBills(S.shop.id);
-  if (result.networkError) {
+  const billResult = await DukaanOffline.syncPendingBills(S.shop.id);
+  const opResult = await DukaanOffline.syncQueuedOperations(S.shop.id);
+  if (billResult.networkError && opResult.networkError) {
     $("#sync_status").textContent = "Still offline - will retry automatically.";
   } else {
-    $("#sync_status").textContent = `Synced: ${result.synced}, Conflicts: ${result.conflicts}, Errors: ${result.errors}`;
+    const synced = billResult.synced + opResult.synced;
+    const conflicts = billResult.conflicts + opResult.conflicts;
+    const errors = billResult.errors + opResult.errors;
+    $("#sync_status").textContent = `Synced: ${synced}, Conflicts: ${conflicts}, Errors: ${errors}`;
   }
   if (typeof updateNetStatus === "function") updateNetStatus();
 }
@@ -255,17 +259,19 @@ async function updateNetStatus() {
   const el = $("#net_status");
   if (!el) return;
   const online = DukaanOffline.isOnline();
-  const pending = S.shop?.id ? await DukaanOffline.countPendingBills(S.shop.id) : 0;
-  el.textContent = (online ? "ONLINE" : "OFFLINE – Billing available") + (pending ? ` · ${pending} bill${pending > 1 ? "s" : ""} waiting to sync` : "");
+  const pendingBills = S.shop?.id ? await DukaanOffline.countPendingBills(S.shop.id) : 0;
+  const pendingOps = S.shop?.id ? await DukaanOffline.countQueuedOperations(S.shop.id) : 0;
+  const total = pendingBills + pendingOps;
+  el.textContent = (online ? "ONLINE" : "OFFLINE – Billing available") + (total ? ` · ${total} item${total > 1 ? "s" : ""} waiting to sync` : "");
   el.style.background = online ? "#e3f6e8" : "#fff3d6";
 }
 
 async function trySync() {
   if (!DukaanOffline.isOnline() || !S.shop?.id) return;
   await DukaanOffline.syncPendingBills(S.shop.id);
+  await DukaanOffline.syncQueuedOperations(S.shop.id);
   await updateNetStatus();
 }
-
 window.addEventListener("online", trySync);
 window.addEventListener("offline", updateNetStatus);
 window.addEventListener("hashchange", () => {
