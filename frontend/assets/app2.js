@@ -56,11 +56,29 @@ async function recordPayment(customerId) {
   const amount = prompt("How much is the customer paying back now (₹)?");
   const val = parseFloat(amount);
   if (!val || val <= 0) return;
+
+  if (!DukaanOffline.isOnline()) {
+    await DukaanOffline.queueOfflineOperation(S.shop.id, "udhaar_payment", { customerId, amount: val, note: "Udhaar payment (offline)" });
+    const customer = S.customers.find((c) => c.id === customerId);
+    if (customer) customer.udhaar_balance = (customer.udhaar_balance || 0) - val;
+    alert("Payment saved offline. It will sync automatically when internet is available.");
+    if (typeof updateNetStatus === "function") updateNetStatus();
+    viewCustomer(customerId);
+    return;
+  }
+
   try {
     await api.post(`/customers/${customerId}/udhaar-payment`, { amount: val, note: "Udhaar payment" });
     await bootData();
     viewCustomer(customerId);
   } catch (err) {
+    if (err.message && /fetch|network|failed/i.test(err.message)) {
+      await DukaanOffline.queueOfflineOperation(S.shop.id, "udhaar_payment", { customerId, amount: val, note: "Udhaar payment (offline)" });
+      alert("Connection dropped - payment saved offline and will sync automatically.");
+      if (typeof updateNetStatus === "function") updateNetStatus();
+      viewCustomer(customerId);
+      return;
+    }
     alert(err.message);
   }
 }
