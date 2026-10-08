@@ -94,6 +94,11 @@ function pageSettings() {
       <button class="btn" onclick="saveSettings()">Save Settings</button>
     </div>
     <div class="card">
+      <h3>Offline Sync</h3>
+      <p id="sync_status" class="muted">Checking...</p>
+      <button class="btn o" onclick="manualSync()">Sync Now</button>
+    </div>
+    <div class="card">
       <label>Shop Profile Image</label>
       <input type="file" accept="image/*" onchange="uploadLogo(this)">
       ${S.shop.logo_path ? `<img src="${S.shop.logo_path}" alt="Shop logo" style="width:120px;border-radius:10px;display:block;margin-top:8px">` : `<p class="muted">No shop image yet.</p>`}
@@ -162,7 +167,16 @@ async function saveSettings() {
     $("#st_err").textContent = err.message;
   }
 }
-
+async function manualSync() {
+  $("#sync_status").textContent = "Syncing...";
+  const result = await DukaanOffline.syncPendingBills(S.shop.id);
+  if (result.networkError) {
+    $("#sync_status").textContent = "Still offline - will retry automatically.";
+  } else {
+    $("#sync_status").textContent = `Synced: ${result.synced}, Conflicts: ${result.conflicts}, Errors: ${result.errors}`;
+  }
+  if (typeof updateNetStatus === "function") updateNetStatus();
+}
 async function bootData() {
   try {
     const [products, customers] = await Promise.all([api.get("/products"), api.get("/customers")]);
