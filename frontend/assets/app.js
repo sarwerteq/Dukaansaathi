@@ -24,8 +24,19 @@ async function tryRestoreSession() {
     const { user, shop } = await api.get("/auth/me");
     S.user = user;
     S.shop = shop;
+    DukaanOffline.cacheSession(user, shop);
     return true;
   } catch {
+    // Server unreachable (offline, or Render free-tier cold start). Fall
+    // back to the last session this device successfully logged into -
+    // this is what lets billing keep working with no internet, without
+    // ever storing or checking a password offline.
+    const cached = await DukaanOffline.getCachedSession();
+    if (cached) {
+      S.user = cached.user;
+      S.shop = cached.shop;
+      return true;
+    }
     return false;
   }
 }
@@ -100,6 +111,7 @@ async function doLogin() {
     const { user, shop } = await api.post("/auth/login", { phone: $("#l_phone").value.trim(), password: $("#l_pass").value });
     S.user = user;
     S.shop = shop;
+    DukaanOffline.cacheSession(user, shop);
     await bootData();
     goTo("dashboard");
   } catch (err) {
@@ -208,6 +220,7 @@ async function verifySignupEmail() {
     });
     S.user = user;
     S.shop = shop;
+    DukaanOffline.cacheSession(user, shop);
     await bootData();
     goTo("dashboard");
   } catch (err) {
@@ -440,26 +453,75 @@ async function submitBill() {
   }
   const subtotal = billSubtotal();
   const discount = currentDiscount(subtotal);
+  const billPayload = {
+    customerId,
+    items: S.billItems.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.price })),
+    discount,
+    paymentMode: mode,
+    paidAmount: mode === "Partial" ? parseFloat($("#b_paid").value) || 0 : undefined,
+  };
+
+  if (!DukaanOffline.isOnline()) {
+    await saveBillOffline(billPayload, subtotal, discount);
+    return;
+  }
+
   try {
-    const result = await api.post("/invoices", {
-      customerId,
-      items: S.billItems.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.price })),
-      discount,
-      paymentMode: mode,
-      paidAmount: mode === "Partial" ? parseFloat($("#b_paid").value) || 0 : undefined,
-    });
+    const result = await api.post("/invoices", billPayload);
     S.billItems = [];
     await bootData();
     showInvoiceResult(result);
   } catch (err) {
+    if (err.message && /fetch|network|failed/i.test(err.message)) {
+      await saveBillOffline(billPayload, subtotal, discount);
+      return;
+    }
     $("#b_err").textContent = err.message;
   }
+}
+
+async function saveBillOffline(billPayload, subtotal, discount) {
+  const customer = S.customers.find((c) => c.id === billPayload.customerId) || null;
+  const total = Math.max(0, round2(subtotal - discount));
+  let paidAmount, dueAmount;
+  if (billPayload.paymentMode === "Cash" || billPayload.paymentMode === "UPI") {
+    paidAmount = total;
+    dueAmount = 0;
+  } else if (billPayload.paymentMode === "Udhaar") {
+    paidAmount = 0;
+    dueAmount = total;
+  } else {
+    paidAmount = Math.min(total, billPayload.paidAmount || 0);
+    dueAmount = round2(total - paidAmount);
+  }
+
+  const localPreview = {
+    invoice: {
+      invoice_number: "OFFLINE-PENDING",
+      created_at: new Date().toISOString(),
+      subtotal: round2(subtotal),
+      discount: round2(discount),
+      total,
+      payment_mode: billPayload.paymentMode,
+      paid_amount: round2(paidAmount),
+      due_amount: dueAmount,
+    },
+    items: S.billItems.map((i) => ({ name: i.name, qty: i.qty, line_total: round2(i.price * i.qty) })),
+    customer,
+  };
+
+  await DukaanOffline.queueOfflineBill(S.shop.id, { ...billPayload, createdOfflineAt: new Date().toISOString() }, localPreview);
+  S.billItems = [];
+  await bootData();
+  showInvoiceResult(localPreview, true);
+  updateNetStatus();
 }
 
 function showInvoiceResult(data) {
   const { invoice, items, customer } = data;
   $("#app").innerHTML = `
     <h2>Bill Saved</h2>
+    ${isOffline ? `<p class="muted">Bill saved offline. It will sync automatically when internet is available.</p>` : ""}
     <div class="card">
       <h3>${escHtml(S.shop.name)}</h3>
       <p>Invoice ${invoice.invoice_number} · ${new Date(invoice.created_at).toLocaleString()}</p>
