@@ -239,9 +239,20 @@ async function resendVerifyCode() {
 }
 
 async function logout() {
+  if (S.shop?.id) {
+    const pendingBills = await DukaanOffline.countPendingBills(S.shop.id);
+    const pendingOps = await DukaanOffline.countQueuedOperations(S.shop.id);
+    if (pendingBills + pendingOps > 0) {
+      const proceed = confirm(
+        `You have ${pendingBills + pendingOps} unsynchronized business ${pendingBills + pendingOps > 1 ? "items" : "item"}. Please connect to the internet and sync before continuing. Log out anyway?`
+      );
+      if (!proceed) return;
+    }
+  }
   await api.post("/auth/logout");
   S.user = null;
   S.shop = null;
+  await DukaanOffline.clearCachedSession();
   goTo("login");
 }
 
