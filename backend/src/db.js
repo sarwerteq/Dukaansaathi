@@ -138,6 +138,38 @@ try {
   /* column already exists */
 }
 try {
+  db.exec("ALTER TABLE invoices ADD COLUMN client_transaction_id TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE invoices ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE invoices ADD COLUMN created_offline_at TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE invoices ADD COLUMN synced_at TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec("ALTER TABLE invoices ADD COLUMN sync_error TEXT");
+} catch {
+  /* column already exists */
+}
+try {
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_client_txn ON invoices(shop_id, client_transaction_id) WHERE client_transaction_id IS NOT NULL"
+  );
+} catch {
+  /* index already exists */
+}
+try {
   db.exec(`CREATE TABLE IF NOT EXISTS otps (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
