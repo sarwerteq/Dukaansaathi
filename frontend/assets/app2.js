@@ -219,8 +219,30 @@ async function render() {
   renderShell(pageHome());
 }
 
+async function updateNetStatus() {
+  const el = $("#net_status");
+  if (!el) return;
+  const online = DukaanOffline.isOnline();
+  const pending = S.shop?.id ? await DukaanOffline.countPendingBills(S.shop.id) : 0;
+  el.textContent = (online ? "ONLINE" : "OFFLINE – Billing available") + (pending ? ` · ${pending} bill${pending > 1 ? "s" : ""} waiting to sync` : "");
+  el.style.background = online ? "#e3f6e8" : "#fff3d6";
+}
+
+async function trySync() {
+  if (!DukaanOffline.isOnline() || !S.shop?.id) return;
+  await DukaanOffline.syncPendingBills(S.shop.id);
+  await updateNetStatus();
+}
+
+window.addEventListener("online", trySync);
+window.addEventListener("offline", updateNetStatus);
 window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
   render();
+  updateNetStatus();
 });
-document.addEventListener("DOMContentLoaded", render);
+document.addEventListener("DOMContentLoaded", () => {
+  render();
+  updateNetStatus();
+  trySync();
+});
