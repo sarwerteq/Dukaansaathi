@@ -164,9 +164,25 @@ async function saveSettings() {
 }
 
 async function bootData() {
-  const [products, customers] = await Promise.all([api.get("/products"), api.get("/customers")]);
-  S.products = products;
-  S.customers = customers;
+  try {
+    const [products, customers] = await Promise.all([api.get("/products"), api.get("/customers")]);
+    S.products = products;
+    S.customers = customers;
+    if (S.shop?.id) {
+      DukaanOffline.cacheProducts(S.shop.id, products);
+      DukaanOffline.cacheCustomers(S.shop.id, customers);
+    }
+  } catch (err) {
+    // Offline (or server unreachable): fall back to the last cached copy
+    // instead of failing the page. If there's nothing cached yet (first
+    // ever load with no internet), the lists are simply empty.
+    if (S.shop?.id) {
+      S.products = await DukaanOffline.getCachedProducts(S.shop.id);
+      S.customers = await DukaanOffline.getCachedCustomers(S.shop.id);
+    } else {
+      throw err;
+    }
+  }
 }
 
 const PROTECTED_HASHES = ["dashboard", "billing", "stock", "customers", "reports", "settings"];
