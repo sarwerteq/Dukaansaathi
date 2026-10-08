@@ -6,7 +6,6 @@
 // filters by the CURRENT logged-in shop's id, so switching accounts on
 // the same device never shows one shop's cached data to another.
 
-
 const DB_NAME = "dukaansaathi_offline";
 const DB_VERSION = 2;
 let dbPromise = null;
@@ -21,9 +20,6 @@ function openOfflineDb() {
       if (!db.objectStoreNames.contains("products")) db.createObjectStore("products", { keyPath: "id" });
       if (!db.objectStoreNames.contains("customers")) db.createObjectStore("customers", { keyPath: "id" });
       if (!db.objectStoreNames.contains("pendingBills")) db.createObjectStore("pendingBills", { keyPath: "clientTransactionId" });
-      // Generic queue for offline operations that are NOT bills (udhaar
-      // payments, stock adjustments). Bills keep using pendingBills above
-      // unchanged - this is additive, nothing existing is touched.
       if (!db.objectStoreNames.contains("syncQueue")) db.createObjectStore("syncQueue", { keyPath: "clientTransactionId" });
     };
     req.onsuccess = () => resolve(req.result);
@@ -225,7 +221,6 @@ function isOnline() {
   return navigator.onLine;
 }
 
-cat > /home/claude/ds_offline/newtail.js << 'TAILEOF'
 async function queueOfflineOperation(shopId, entityType, payload) {
   const clientTransactionId = uuid();
   const record = {
@@ -337,14 +332,4 @@ const DukaanOffline = {
   syncQueuedOperations,
   isOnline,
 };
-TAILEOF
-
-python3 << 'PYEOF'
-content = open('/home/claude/ds_offline/offline_v2_full.js').read()
-marker = "const DukaanOffline = {"
-idx = content.index(marker)
-head = content[:idx]
-tail = open('/home/claude/ds_offline/newtail.js').read()
-open('/home/claude/ds_offline/offline_v2_merged.js', 'w').write(head + tail)
-PYEOF
-node --check /home/claude/ds_offline/offline_v2_merged.js && echo "MERGED OK"
+        
