@@ -84,17 +84,26 @@ async function recordPayment(customerId) {
 }
 
 async function pageReports() {
-  const todayInvoices = await api.get("/invoices?date=today");
-  const totalToday = todayInvoices.reduce((s, d) => s + d.invoice.total, 0);
+  const todayInvoices = await api.get("/invoices?date=today").catch(() => []);
+  const pendingBills = S.shop?.id ? await DukaanOffline.getPendingBills(S.shop.id) : [];
+  const serverTotal = todayInvoices.reduce((s, d) => s + d.invoice.total, 0);
+  const pendingTotal = pendingBills.reduce((s, b) => s + b.localInvoicePreview.invoice.total, 0);
   return `
     <h2>Today's Bills</h2>
-    <div class="stat"><span>Total</span><b>${money(totalToday)}</b></div>
+    <div class="stat"><span>Total</span><b>${money(serverTotal + pendingTotal)}</b></div>
     <div class="card">
       <table>
-        <tr><th>Invoice</th><th>Customer</th><th>Total</th></tr>
+        <tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Status</th></tr>
+        ${pendingBills
+          .map(
+            (b) =>
+              `<tr><td>${escHtml(b.localInvoicePreview.invoice.invoice_number)}</td><td>${escHtml(b.localInvoicePreview.customer?.name || "Walk-in")}</td><td>${money(b.localInvoicePreview.invoice.total)}</td><td>${b.status === "SYNC_CONFLICT" ? "SYNC CONFLICT" : "PENDING SYNC"}</td></tr>`
+          )
+          .join("")}
         ${todayInvoices
-          .map((d) => `<tr><td>${d.invoice.invoice_number}</td><td>${escHtml(d.customer?.name || "Walk-in")}</td><td>${money(d.invoice.total)}</td></tr>`)
-          .join("") || `<tr><td colspan="3" class="muted">No bills today yet.</td></tr>`}
+          .map((d) => `<tr><td>${d.invoice.invoice_number}</td><td>${escHtml(d.customer?.name || "Walk-in")}</td><td>${money(d.invoice.total)}</td><td>SYNCED</td></tr>`)
+          .join("")}
+        ${!pendingBills.length && !todayInvoices.length ? `<tr><td colspan="4" class="muted">No bills today yet.</td></tr>` : ""}
       </table>
     </div>
   `;
