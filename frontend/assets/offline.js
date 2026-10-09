@@ -7,7 +7,7 @@
 // the same device never shows one shop's cached data to another.
 
 const DB_NAME = "dukaansaathi_offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let dbPromise = null;
 
 function openOfflineDb() {
@@ -21,6 +21,11 @@ function openOfflineDb() {
       if (!db.objectStoreNames.contains("customers")) db.createObjectStore("customers", { keyPath: "id" });
       if (!db.objectStoreNames.contains("pendingBills")) db.createObjectStore("pendingBills", { keyPath: "clientTransactionId" });
       if (!db.objectStoreNames.contains("syncQueue")) db.createObjectStore("syncQueue", { keyPath: "clientTransactionId" });
+      // Append-only audit log of every local stock/udhaar change made
+      // while offline. Separate from the mutated products/customers rows
+      // above (which only hold the latest total) - this is the durable,
+      // per-change record the offline spec asked for.
+      if (!db.objectStoreNames.contains("localLedger")) db.createObjectStore("localLedger", { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -102,7 +107,19 @@ async function getCachedCustomers(shopId) {
 // udhaar up), so the next offline bill in the same session sees correct
 // numbers. The server re-validates everything again at sync time - this
 // local adjustment is only for a sane offline UI, never trusted as final.
-async function applyLocalBillEffects(shopId, bill) {
+async function appendLedgerEntry(entry) {
+  await tx("localLedger", "readwrite", (store) => store.put({ id: uuid(), createdAt: new Date().toISOString(), ...entry }));
+}
+async function getLocalLedger(shopId) {
+  const db = await openOfflineDb();
+  return new Promise((resolve) => {
+    const req = db.transaction("localLedger", "readonly").objectStore("localLedger").getAll();
+    req.onsuccess = () => resolve((req.result || []).filter((e) => e.shopId === shopId));
+    req.onerror = () => resolve([]);
+  });
+}
+
+async function applyLocalBillEffects(shopId, bill, clientTransactionId) {
   const products = await getCachedProducts(shopId);
   await tx("products", "readwrite", (store) => {
     bill.items.forEach((item) => {
@@ -110,6 +127,16 @@ async function applyLocalBillEffects(shopId, bill) {
       if (p) store.put({ ...p, stock_qty: Math.max(0, p.stock_qty - item.qty) });
     });
   });
+  for (const item of bill.items) {
+    await appendLedgerEntry({
+      shopId,
+      entityType: "stock",
+      relatedClientTransactionId: clientTransactionId,
+      productId: item.productId,
+      qtyChange: -item.qty,
+      note: "Offline sale",
+    });
+  }
   if (bill.customerId && (bill.paymentMode === "Udhaar" || bill.paymentMode === "Partial")) {
     const customers = await getCachedCustomers(shopId);
     const c = customers.find((x) => x.id === bill.customerId);
@@ -117,6 +144,14 @@ async function applyLocalBillEffects(shopId, bill) {
       // Mirrors the server's own total/paid calculation closely enough
       // for a local receipt preview; the server computes the real total.
       await tx("customers", "readwrite", (store) => store.put({ ...c, udhaar_balance: (c.udhaar_balance || 0) + (bill._dueAmount || 0) }));
+      await appendLedgerEntry({
+        shopId,
+        entityType: "udhaar",
+        relatedClientTransactionId: clientTransactionId,
+        customerId: bill.customerId,
+        amountChange: bill._dueAmount || 0,
+        note: "Offline bill udhaar",
+      });
     }
   }
 }
@@ -134,7 +169,7 @@ async function queueOfflineBill(shopId, billPayload, localInvoicePreview) {
     localInvoicePreview, // what the receipt screen shows until it's synced
   };
   await tx("pendingBills", "readwrite", (store) => store.put(record));
-  await applyLocalBillEffects(shopId, { ...billPayload, _dueAmount: localInvoicePreview.invoice.due_amount });
+  await applyLocalBillEffects(shopId, { ...billPayload, _dueAmount: localInvoicePreview.invoice.due_amount }, clientTransactionId);
   return record;
 }
 
@@ -323,6 +358,7 @@ const DukaanOffline = {
   getCachedProducts,
   getCachedCustomers,
   queueOfflineBill,
+  getLocalLedger,
   getPendingBills,
   countPendingBills,
   syncPendingBills,
@@ -332,4 +368,4 @@ const DukaanOffline = {
   syncQueuedOperations,
   isOnline,
 };
-        
+      
