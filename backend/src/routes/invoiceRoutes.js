@@ -2,7 +2,6 @@ const express = require("express");
 const { v4: uuid } = require("uuid");
 const db = require("../db");
 const { requireAuth } = require("../auth");
-const { calculatePrice } = require("../pricing");
 
 const router = express.Router();
 router.use(requireAuth);
